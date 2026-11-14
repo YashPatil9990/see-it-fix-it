@@ -4,13 +4,15 @@
 <style>
 :root{--bg:#0f1115;--fg:#f2f4f8;--card:#1b1f27;--acc:#4f8cff;--bad:#ff5d5d}
 @media(prefers-color-scheme:light){:root{--bg:#f6f7fa;--fg:#14171c;--card:#fff}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px system-ui,sans-serif;display:flex;flex-direction:column;height:100dvh}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px system-ui,sans-serif;display:flex;flex-direction:column;height:100dvh}
 video{width:100%;flex:1;min-height:0;object-fit:cover;background:#000}
 #log{height:22dvh;overflow:auto;padding:10px;background:var(--card);font-size:14px}
 .u{color:var(--acc)}.c{opacity:.95}
 #bar{display:flex;gap:8px;padding:10px;align-items:center;flex-wrap:wrap}
-button,select{border:0;border-radius:12px;padding:12px 16px;font-size:16px;background:var(--card);color:var(--fg)}
+button,select{border:0;border-radius:12px;padding:12px 16px;font-size:16px;background:var(--card);color:var(--fg);cursor:pointer}
 #go{background:var(--acc);color:#fff;flex:1}#go.on{background:var(--bad)}
+#reconnect{background:#f59e0b;color:#fff;display:none}
 #timers{position:fixed;top:10px;right:10px;display:flex;flex-direction:column;gap:6px}
 .t{background:rgba(0,0,0,.7);color:#fff;padding:6px 10px;border-radius:10px;font-size:14px}
 #status{position:fixed;top:12px;left:12px;z-index:10;padding:6px 12px;border-radius:20px;font-size:13px;font-weight:600;background:rgba(0,0,0,.75);color:#fff;display:inline-flex;align-items:center;gap:6px}
@@ -19,47 +21,109 @@ button,select{border:0;border-radius:12px;padding:12px 16px;font-size:16px;backg
 #status.listening::before{background:#10b981}
 #status.speaking::before{background:#3b82f6;box-shadow:0 0 8px #3b82f6}
 #status.error::before{background:#ef4444}
-#guide{display:none;position:fixed;inset:0;background:var(--bg);overflow:auto;padding:16px;max-width:760px;margin:auto}
-#guide img{max-width:100%;border-radius:8px}
-@media print{body>*:not(#guide){display:none}#guide{position:static;display:block}}
+/* Safety disclaimer */
+#disclaimer{text-align:center;font-size:11px;padding:4px 8px;opacity:.6;line-height:1.4}
+/* Guide overlay */
+#guide{display:none;position:fixed;inset:0;background:var(--bg);overflow:auto;padding:16px 20px;z-index:100}
+#guide-inner{max-width:720px;margin:auto}
+#guide h1{font-size:1.4rem;margin-top:0}
+#guide h3{margin-top:1.2rem}
+#guide ol{padding-left:1.4rem}
+#guide li{margin-bottom:1rem;line-height:1.6}
+#guide img{max-width:100%;border-radius:8px;margin-top:8px;display:block}
+#guide small{color:#888}
+#guide .guide-btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+#guide .guide-btns button{flex:1;min-width:120px}
+@media print{body>*:not(#guide){display:none}#guide{position:static;display:block}#guide .guide-btns{display:none}}
+/* Narrow screen tweaks */
+@media(max-width:420px){
+  button,select{padding:10px 12px;font-size:15px}
+  #log{font-size:13px}
+}
 </style></head><body>
 <div id="status">Ready</div>
-<video id="v" playsinline muted></video><div id="timers"></div>
+<video id="v" playsinline muted></video>
+<div id="timers"></div>
 <div id="log"></div>
-<div id="bar"><button id="go">▶ Start coaching</button><button id="mark">📸 Mark step</button>
-<button id="save">📘 Save my guide</button></div>
-<div id="guide"></div>
+<div id="disclaimer">⚠ AI coach. Not a substitute for a licensed professional for gas, electrical, or medical tasks.</div>
+<div id="bar">
+  <button id="go">▶ Start coaching</button>
+  <button id="mark">📸 Mark step</button>
+  <button id="save">📘 Save my guide</button>
+  <button id="reconnect">🔄 Reconnect</button>
+</div>
+<div id="guide"><div id="guide-inner"></div></div>
 <script>
 const $=id=>document.getElementById(id);
 let ws,stream,ctxIn,ctxOut,proc,playT=0,sources=[],on=false,t0=0,frameTimer;
 const transcript=[],shots=[];let lastShot=0;
+
+// MM:SS timestamp from session start
 const ts=()=>{const s=Math.floor((Date.now()-t0)/1000);return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')};
-function log(who,txt){const l=$('log');let last=l.lastElementChild;
-  if(last&&last.dataset.w===who){last.textContent+=txt}else{last=document.createElement('div');last.dataset.w=who;last.className=who==='You'?'u':'c';last.textContent=who+': '+txt;l.appendChild(last);
+
+// Log transcription lines; accumulate text into transcript array
+function log(who,txt){
+  const l=$('log');let last=l.lastElementChild;
+  if(last&&last.dataset.w===who){last.textContent+=txt}
+  else{last=document.createElement('div');last.dataset.w=who;last.className=who==='You'?'u':'c';
+    last.textContent=who+': '+txt;l.appendChild(last);
     transcript.push({who,t:ts(),i:transcript.length});}
-  const e=transcript[transcript.length-1];if(e&&e.who===who)e.text=(e.text||'')+txt;l.scrollTop=l.scrollHeight}
+  const e=transcript[transcript.length-1];if(e&&e.who===who)e.text=(e.text||'')+txt;
+  l.scrollTop=l.scrollHeight}
+
+// Base64 encode an ArrayBuffer
 const b64=buf=>{let s='',b=new Uint8Array(buf);for(let i=0;i<b.length;i+=0x8000)s+=String.fromCharCode.apply(null,b.subarray(i,i+0x8000));return btoa(s)};
+
+// Send JSON over WebSocket (no-op if not open)
 const send=o=>ws&&ws.readyState===1&&ws.send(JSON.stringify(o));
 
-function snap(q=0.6,w=640){const v=$('v');if(!v.videoWidth)return null;const c=document.createElement('canvas');
-  c.width=w;c.height=Math.round(w*v.videoHeight/v.videoWidth);c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+// Snap a JPEG frame from video element
+function snap(q=0.6,w=640){
+  const v=$('v');if(!v.videoWidth)return null;
+  const c=document.createElement('canvas');
+  c.width=w;c.height=Math.round(w*v.videoHeight/v.videoWidth);
+  c.getContext('2d').drawImage(v,0,0,c.width,c.height);
   return c.toDataURL('image/jpeg',q).split(',')[1]}
-function mark(){const d=snap(.7,512);if(d&&shots.length<8)shots.push({t:ts(),b64:d})}
 
+// --- Phase 4 extra: keep 8 most evenly distributed frames across the whole session ---
+function mark(){
+  const d=snap(.7,512);if(!d)return;
+  const now=Date.now();
+  const entry={t:ts(),b64:d,ms:now-t0};
+  if(shots.length<8){shots.push(entry);return;}
+  // Replace the shot whose timestamp deviates most from ideal even spacing
+  const dur=now-t0;// ms elapsed
+  let worst=0,maxDiff=0;
+  shots.forEach((sh,i)=>{
+    const ideal=Math.round(dur*(i+1)/8);// ideal ms for slot i
+    const diff=Math.abs(sh.ms-ideal);
+    if(diff>maxDiff){maxDiff=diff;worst=i;}});
+  shots[worst]=entry;}
+
+// Status pill
 const setStatus=(cls,txt)=>{const el=$('status');if(!el)return;el.className=cls||'';el.textContent=txt||(cls?cls[0].toUpperCase()+cls.slice(1):'Ready')};
-function play(b64pcm){const bin=atob(b64pcm),n=bin.length/2,f=new Float32Array(n);
+
+// --- Audio playback queue ---
+function play(b64pcm){
+  const bin=atob(b64pcm),n=bin.length/2,f=new Float32Array(n);
   for(let i=0;i<n;i++){let v=bin.charCodeAt(2*i)|(bin.charCodeAt(2*i+1)<<8);if(v&0x8000)v-=0x10000;f[i]=v/32768}
   const buf=ctxOut.createBuffer(1,n,24000);buf.copyToChannel(f,0);
   const s=ctxOut.createBufferSource();s.buffer=buf;s.connect(ctxOut.destination);
   playT=Math.max(playT,ctxOut.currentTime);s.start(playT);playT+=buf.duration;sources.push(s);
   s.onended=()=>{sources=sources.filter(x=>x!==s);if(!sources.length)setStatus('listening','Listening')}}
+
 function stopPlayback(){sources.forEach(s=>{try{s.stop()}catch{}});sources=[];playT=0}
 
-function addTimer(sec,label){const el=document.createElement('div');el.className='t';$('timers').appendChild(el);let r=sec;
-  const iv=setInterval(()=>{el.textContent=`⏱ ${label} ${Math.floor(r/60)}:${String(r%60).padStart(2,'0')}`;
+// --- Timer tool UI ---
+function addTimer(sec,label){
+  const el=document.createElement('div');el.className='t';$('timers').appendChild(el);let r=sec;
+  const iv=setInterval(()=>{
+    el.textContent=`⏱ ${label} ${Math.floor(r/60)}:${String(r%60).padStart(2,'0')}`;
     if(r--<=0){clearInterval(iv);el.textContent=`✅ ${label} done`;
-      send({realtimeInput:{text:`[Timer finished: ${label}] Tell the user now.`}});setTimeout(()=>el.remove(),8000)}},1000)}
+      send({realtimeInput:{text:`[Timer finished: ${label}] Tell the user now.`}});
+      setTimeout(()=>el.remove(),8000)}},1000)}
 
+// --- Incoming message handler ---
 function onMsg(m){
   if(m.serverContent){const s=m.serverContent;
     if(s.interrupted){stopPlayback();setStatus('listening','Listening')}
@@ -67,46 +131,92 @@ function onMsg(m){
     if(s.inputTranscription?.text)log('You',s.inputTranscription.text);
     if(s.outputTranscription?.text)log('Coach',s.outputTranscription.text);
     if(s.turnComplete&&!sources.length)setStatus('listening','Listening')}
-  if(m.toolCall){const rs=m.toolCall.functionCalls.map(c=>{
-    if(c.name==='set_timer')addTimer(+c.args.seconds,c.args.label||'Timer');
-    return{id:c.id,name:c.name,response:{result:'timer started'}}});
+  if(m.toolCall){
+    const rs=m.toolCall.functionCalls.map(c=>{
+      if(c.name==='set_timer')addTimer(+c.args.seconds,c.args.label||'Timer');
+      return{id:c.id,name:c.name,response:{result:'timer started'}}});
     send({toolResponse:{functionResponses:rs}})}}
 
+// --- Session start ---
 async function start(){
   setStatus('connecting','Connecting...');
-  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1280}},audio:{echoCancellation:true,noiseSuppression:true}});
+  $('reconnect').style.display='none';
+  stream=await navigator.mediaDevices.getUserMedia(
+    {video:{facingMode:'environment',width:{ideal:1280}},audio:{echoCancellation:true,noiseSuppression:true}});
   $('v').srcObject=stream;await $('v').play();
-  ctxOut=new AudioContext({sampleRate:24000});ctxIn=new AudioContext({sampleRate:16000});
+  ctxOut=new AudioContext({sampleRate:24000});
+  ctxIn=new AudioContext({sampleRate:16000});
   if(ctxOut.state==='suspended')await ctxOut.resume();
   if(ctxIn.state==='suspended')await ctxIn.resume();
   ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/live');
   ws.onmessage=async e=>onMsg(JSON.parse(typeof e.data==='string'?e.data:await e.data.text()));
-  ws.onclose=()=>{stop();setStatus('error','Disconnected')};
-  ws.onerror=()=>setStatus('error','Error');
-  ws.onopen=()=>{t0=Date.now();setStatus('listening','Listening');
+  ws.onclose=()=>{stop(false);setStatus('error','Disconnected');$('reconnect').style.display=''};
+  ws.onerror=()=>setStatus('error','Connection error');
+  ws.onopen=()=>{
+    t0=Date.now();setStatus('listening','Listening');
+    // Mic → PCM 16 kHz (AudioContext resamples automatically if device differs)
     const src=ctxIn.createMediaStreamSource(stream);proc=ctxIn.createScriptProcessor(4096,1,1);
-    proc.onaudioprocess=e=>{const f=e.inputBuffer.getChannelData(0),p=new Int16Array(f.length);
+    proc.onaudioprocess=e=>{
+      const f=e.inputBuffer.getChannelData(0),p=new Int16Array(f.length);
       for(let i=0;i<f.length;i++)p[i]=Math.max(-1,Math.min(1,f[i]))*32767;
       send({realtimeInput:{audio:{data:b64(p.buffer),mimeType:'audio/pcm;rate=16000'}}})};
     src.connect(proc);proc.connect(ctxIn.destination);
-    frameTimer=setInterval(()=>{const d=snap();if(d)send({realtimeInput:{video:{data:d,mimeType:'image/jpeg'}}});
+    // 1 fps video + auto-mark every 20s
+    frameTimer=setInterval(()=>{
+      const d=snap();if(d)send({realtimeInput:{video:{data:d,mimeType:'image/jpeg'}}});
       if(Date.now()-lastShot>20000){lastShot=Date.now();mark()}},1000);}
   on=true;$('go').textContent='■ Stop';$('go').classList.add('on')}
-function stop(){on=false;clearInterval(frameTimer);proc&&proc.disconnect();stream&&stream.getTracks().forEach(t=>t.stop());
-  ws&&ws.close();stopPlayback();$('go').textContent='▶ Start coaching';$('go').classList.remove('on');setStatus('','Ready')}
+
+// keepStream=false → release camera/mic; true → reconnect without releasing
+function stop(keepStream=false){
+  on=false;clearInterval(frameTimer);
+  proc&&proc.disconnect();
+  if(!keepStream&&stream)stream.getTracks().forEach(t=>t.stop());
+  ws&&ws.close();stopPlayback();
+  $('go').textContent='▶ Start coaching';$('go').classList.remove('on');setStatus('','Ready')}
+
 $('go').onclick=()=>on?stop():start().catch(e=>alert(e.message));
 $('mark').onclick=mark;
+$('reconnect').onclick=()=>start().catch(e=>alert(e.message));
 
+// --- Phase 4: Save my guide ---
 $('save').onclick=async()=>{
-  const g=$('guide');g.style.display='block';g.innerHTML='<p>Building your guide…</p>';
+  const g=$('guide');const gi=$('guide-inner');
+  g.style.display='block';gi.innerHTML='<p>Building your guide…</p>';
+
+  // Empty-session guard
+  if(!transcript.length){
+    gi.innerHTML='<h2>No session yet</h2><p>Start a coaching session, do your task, then tap Save my guide.</p><div class="guide-btns"><button onclick="$(\'guide\').style.display=\'none\'">Close</button></div>';
+    return;}
+
   const text=transcript.map(x=>`[${x.t}] ${x.who}: ${x.text||''}`).join('\n');
-  const r=await fetch('/api/guide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transcript:text,shots})});
-  const d=await r.json();if(!r.ok){g.innerHTML='<p>Error: '+JSON.stringify(d)+'</p><button onclick="guide.style.display=\'none\'">Close</button>';return}
+  let r,d;
+  try{
+    r=await fetch('/api/guide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transcript:text,shots})});
+    d=await r.json();
+  }catch(e){
+    gi.innerHTML='<p>Network error: '+e.message+'</p><div class="guide-btns"><button onclick="$(\'guide\').style.display=\'none\'">Close</button></div>';
+    return;}
+
+  if(!r.ok){
+    gi.innerHTML='<p>Error generating guide: '+JSON.stringify(d)+'</p><div class="guide-btns"><button onclick="$(\'guide\').style.display=\'none\'">Close</button></div>';
+    return;}
+
   const esc=s=>String(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-  g.innerHTML=`<h1>${esc(d.title)}</h1><p>${esc(d.summary)}</p>
-   ${d.toolsNeeded?.length?'<h3>You need</h3><ul>'+d.toolsNeeded.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':''}
-   ${d.safetyNotes?.length?'<h3>⚠ Safety</h3><ul>'+d.safetyNotes.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':''}
-   <h3>Steps</h3><ol>${d.steps.map(s=>`<li><b>${esc(s.instruction)}</b>${s.timestamp?` <small>(${esc(s.timestamp)})</small>`:''}
-   ${s.tip?'<br><i>Tip: '+esc(s.tip)+'</i>':''}${s.shotIndex>=0&&shots[s.shotIndex]?'<br><img src="data:image/jpeg;base64,'+shots[s.shotIndex].b64+'">':''}</li>`).join('')}</ol>
-   <button onclick="window.print()">Print / Save PDF</button> <button onclick="guide.style.display='none'">Close</button>`};
+  gi.innerHTML=`
+    <h1>${esc(d.title)}</h1>
+    <p>${esc(d.summary)}</p>
+    ${d.toolsNeeded?.length?'<h3>🔧 You need</h3><ul>'+d.toolsNeeded.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':''}
+    ${d.safetyNotes?.length?'<h3>⚠ Safety</h3><ul>'+d.safetyNotes.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':''}
+    <h3>Steps</h3>
+    <ol>${(d.steps||[]).map(s=>`<li>
+      <b>${esc(s.instruction)}</b>
+      ${s.timestamp?` <small>(${esc(s.timestamp)})</small>`:''}
+      ${s.tip?'<br><i>💡 Tip: '+esc(s.tip)+'</i>':''}
+      ${s.shotIndex>=0&&shots[s.shotIndex]?'<br><img src="data:image/jpeg;base64,'+shots[s.shotIndex].b64+'" loading="lazy">':''}
+    </li>`).join('')}</ol>
+    <div class="guide-btns">
+      <button onclick="window.print()">🖨 Print / Save PDF</button>
+      <button onclick="$('guide').style.display='none'">✕ Close</button>
+    </div>`};
 </script></body></html>
