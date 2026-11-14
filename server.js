@@ -5,8 +5,11 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { readFileSync } from 'fs';
 
 const { GEMINI_API_KEY, LIVE_MODEL = 'gemini-3.1-flash-live-preview',
-        GUIDE_MODEL = 'gemini-3.8-flash', PORT = 3000 } = process.env;
+        GUIDE_MODEL = 'gemini-3.5-flash-lite', PORT = 3000 } = process.env;
 if (!GEMINI_API_KEY) { console.error('Set GEMINI_API_KEY in .env'); process.exit(1); }
+
+// Redact GEMINI_API_KEY from any logs, errors, or URLs
+const redact = (s) => (typeof s === 'string' && GEMINI_API_KEY ? s.replaceAll(GEMINI_API_KEY, '[REDACTED]') : s);
 
 const SYSTEM_PROMPT = readFileSync('./prompt.txt', 'utf8');
 const UPSTREAM = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=' + GEMINI_API_KEY;
@@ -19,6 +22,7 @@ app.use(express.static('public'));
 app.post('/api/guide', async (req, res) => {
   try {
     const { transcript = '', shots = [] } = req.body; // shots: [{t:"01:20", b64:"..."}]
+    console.log(`[Guide] Generating guide: ${shots.length} shots, ${transcript.length} chars transcript...`);
     const parts = [{ text:
       `Turn this coaching session into a clear reusable step-by-step manual. Use only what happened.
 Write in the language the user mainly spoke. Include safety notes and mistakes caught.
@@ -38,9 +42,14 @@ TRANSCRIPT:\n${transcript}` }];
       body: JSON.stringify({ contents: [{ role: 'user', parts }],
         generationConfig: { responseMimeType: 'application/json', responseSchema: schema } }) });
     const j = await r.json();
-    if (!r.ok) return res.status(r.status).json(j);
-    res.json(JSON.parse(j.candidates[0].content.parts[0].text));
-  } catch (e) { console.error(e); res.status(500).json({ error: String(e) }); }
+    if (!r.ok) {
+      console.error('[Guide] API error:', r.status, redact(JSON.stringify(j)));
+      return res.status(r.status).json(j);
+    }
+    const result = JSON.parse(j.candidates[0].content.parts[0].text);
+    console.log(`[Guide] Generated: "${result.title}" with ${result.steps?.length || 0} steps`);
+    res.json(result);
+  } catch (e) { console.error('[Guide] Error:', redact(String(e))); res.status(500).json({ error: redact(String(e)) }); }
 });
 
 // ---- Live relay: browser <-> server <-> Gemini (key never leaves server) ----
@@ -55,6 +64,7 @@ wss.on('connection', (client) => {
       model: `models/${LIVE_MODEL}`,
       generationConfig: { responseModalities: ['AUDIO'],
         speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } } },
+      proactivity: { proactiveAudio: true },
       systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
       tools: [
         { functionDeclarations: [{ name: 'set_timer',
@@ -70,8 +80,11 @@ wss.on('connection', (client) => {
   client.on('message', (d) => upstream.readyState === 1 ? upstream.send(d.toString()) : queue.push(d.toString()));
   // Gemini -> browser
   upstream.on('message', (d) => client.readyState === 1 && client.send(d.toString()));
-  upstream.on('close', (c, r) => { console.log('upstream closed', c, r.toString()); client.close(); });
-  upstream.on('error', (e) => console.error('upstream error', e.message));
+  upstream.on('close', (c, r) => {
+    console.log('upstream closed', c, redact(r.toString()));
+    client.close();
+  });
+  upstream.on('error', (e) => console.error('upstream error', redact(e.message)));
   client.on('close', () => upstream.close());
 });
 

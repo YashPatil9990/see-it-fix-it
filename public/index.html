@@ -13,10 +13,17 @@ button,select{border:0;border-radius:12px;padding:12px 16px;font-size:16px;backg
 #go{background:var(--acc);color:#fff;flex:1}#go.on{background:var(--bad)}
 #timers{position:fixed;top:10px;right:10px;display:flex;flex-direction:column;gap:6px}
 .t{background:rgba(0,0,0,.7);color:#fff;padding:6px 10px;border-radius:10px;font-size:14px}
+#status{position:fixed;top:12px;left:12px;z-index:10;padding:6px 12px;border-radius:20px;font-size:13px;font-weight:600;background:rgba(0,0,0,.75);color:#fff;display:inline-flex;align-items:center;gap:6px}
+#status::before{content:'';width:8px;height:8px;border-radius:50%;background:#888;display:inline-block}
+#status.connecting::before{background:#f59e0b}
+#status.listening::before{background:#10b981}
+#status.speaking::before{background:#3b82f6;box-shadow:0 0 8px #3b82f6}
+#status.error::before{background:#ef4444}
 #guide{display:none;position:fixed;inset:0;background:var(--bg);overflow:auto;padding:16px;max-width:760px;margin:auto}
 #guide img{max-width:100%;border-radius:8px}
 @media print{body>*:not(#guide){display:none}#guide{position:static;display:block}}
 </style></head><body>
+<div id="status">Ready</div>
 <video id="v" playsinline muted></video><div id="timers"></div>
 <div id="log"></div>
 <div id="bar"><button id="go">▶ Start coaching</button><button id="mark">📸 Mark step</button>
@@ -39,12 +46,13 @@ function snap(q=0.6,w=640){const v=$('v');if(!v.videoWidth)return null;const c=d
   return c.toDataURL('image/jpeg',q).split(',')[1]}
 function mark(){const d=snap(.7,512);if(d&&shots.length<8)shots.push({t:ts(),b64:d})}
 
+const setStatus=(cls,txt)=>{const el=$('status');if(!el)return;el.className=cls||'';el.textContent=txt||(cls?cls[0].toUpperCase()+cls.slice(1):'Ready')};
 function play(b64pcm){const bin=atob(b64pcm),n=bin.length/2,f=new Float32Array(n);
   for(let i=0;i<n;i++){let v=bin.charCodeAt(2*i)|(bin.charCodeAt(2*i+1)<<8);if(v&0x8000)v-=0x10000;f[i]=v/32768}
   const buf=ctxOut.createBuffer(1,n,24000);buf.copyToChannel(f,0);
   const s=ctxOut.createBufferSource();s.buffer=buf;s.connect(ctxOut.destination);
   playT=Math.max(playT,ctxOut.currentTime);s.start(playT);playT+=buf.duration;sources.push(s);
-  s.onended=()=>sources=sources.filter(x=>x!==s)}
+  s.onended=()=>{sources=sources.filter(x=>x!==s);if(!sources.length)setStatus('listening','Listening')}}
 function stopPlayback(){sources.forEach(s=>{try{s.stop()}catch{}});sources=[];playT=0}
 
 function addTimer(sec,label){const el=document.createElement('div');el.className='t';$('timers').appendChild(el);let r=sec;
@@ -54,16 +62,18 @@ function addTimer(sec,label){const el=document.createElement('div');el.className
 
 function onMsg(m){
   if(m.serverContent){const s=m.serverContent;
-    if(s.interrupted)stopPlayback();
-    (s.modelTurn?.parts||[]).forEach(p=>p.inlineData&&play(p.inlineData.data));
+    if(s.interrupted){stopPlayback();setStatus('listening','Listening')}
+    (s.modelTurn?.parts||[]).forEach(p=>{if(p.inlineData){setStatus('speaking','Speaking');play(p.inlineData.data)}});
     if(s.inputTranscription?.text)log('You',s.inputTranscription.text);
-    if(s.outputTranscription?.text)log('Coach',s.outputTranscription.text)}
+    if(s.outputTranscription?.text)log('Coach',s.outputTranscription.text);
+    if(s.turnComplete&&!sources.length)setStatus('listening','Listening')}
   if(m.toolCall){const rs=m.toolCall.functionCalls.map(c=>{
     if(c.name==='set_timer')addTimer(+c.args.seconds,c.args.label||'Timer');
     return{id:c.id,name:c.name,response:{result:'timer started'}}});
     send({toolResponse:{functionResponses:rs}})}}
 
 async function start(){
+  setStatus('connecting','Connecting...');
   stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1280}},audio:{echoCancellation:true,noiseSuppression:true}});
   $('v').srcObject=stream;await $('v').play();
   ctxOut=new AudioContext({sampleRate:24000});ctxIn=new AudioContext({sampleRate:16000});
@@ -71,8 +81,9 @@ async function start(){
   if(ctxIn.state==='suspended')await ctxIn.resume();
   ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/live');
   ws.onmessage=async e=>onMsg(JSON.parse(typeof e.data==='string'?e.data:await e.data.text()));
-  ws.onclose=()=>stop();
-  ws.onopen=()=>{t0=Date.now();
+  ws.onclose=()=>{stop();setStatus('error','Disconnected')};
+  ws.onerror=()=>setStatus('error','Error');
+  ws.onopen=()=>{t0=Date.now();setStatus('listening','Listening');
     const src=ctxIn.createMediaStreamSource(stream);proc=ctxIn.createScriptProcessor(4096,1,1);
     proc.onaudioprocess=e=>{const f=e.inputBuffer.getChannelData(0),p=new Int16Array(f.length);
       for(let i=0;i<f.length;i++)p[i]=Math.max(-1,Math.min(1,f[i]))*32767;
@@ -82,7 +93,7 @@ async function start(){
       if(Date.now()-lastShot>20000){lastShot=Date.now();mark()}},1000);}
   on=true;$('go').textContent='■ Stop';$('go').classList.add('on')}
 function stop(){on=false;clearInterval(frameTimer);proc&&proc.disconnect();stream&&stream.getTracks().forEach(t=>t.stop());
-  ws&&ws.close();stopPlayback();$('go').textContent='▶ Start coaching';$('go').classList.remove('on')}
+  ws&&ws.close();stopPlayback();$('go').textContent='▶ Start coaching';$('go').classList.remove('on');setStatus('','Ready')}
 $('go').onclick=()=>on?stop():start().catch(e=>alert(e.message));
 $('mark').onclick=mark;
 
