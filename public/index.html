@@ -67,6 +67,8 @@ async function start(){
   stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1280}},audio:{echoCancellation:true,noiseSuppression:true}});
   $('v').srcObject=stream;await $('v').play();
   ctxOut=new AudioContext({sampleRate:24000});ctxIn=new AudioContext({sampleRate:16000});
+  if(ctxOut.state==='suspended')await ctxOut.resume();
+  if(ctxIn.state==='suspended')await ctxIn.resume();
   ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/live');
   ws.onmessage=async e=>onMsg(JSON.parse(typeof e.data==='string'?e.data:await e.data.text()));
   ws.onclose=()=>stop();
