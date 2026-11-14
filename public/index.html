@@ -1,0 +1,99 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Over-the-Shoulder</title>
+<style>
+:root{--bg:#0f1115;--fg:#f2f4f8;--card:#1b1f27;--acc:#4f8cff;--bad:#ff5d5d}
+@media(prefers-color-scheme:light){:root{--bg:#f6f7fa;--fg:#14171c;--card:#fff}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px system-ui,sans-serif;display:flex;flex-direction:column;height:100dvh}
+video{width:100%;flex:1;min-height:0;object-fit:cover;background:#000}
+#log{height:22dvh;overflow:auto;padding:10px;background:var(--card);font-size:14px}
+.u{color:var(--acc)}.c{opacity:.95}
+#bar{display:flex;gap:8px;padding:10px;align-items:center;flex-wrap:wrap}
+button,select{border:0;border-radius:12px;padding:12px 16px;font-size:16px;background:var(--card);color:var(--fg)}
+#go{background:var(--acc);color:#fff;flex:1}#go.on{background:var(--bad)}
+#timers{position:fixed;top:10px;right:10px;display:flex;flex-direction:column;gap:6px}
+.t{background:rgba(0,0,0,.7);color:#fff;padding:6px 10px;border-radius:10px;font-size:14px}
+#guide{display:none;position:fixed;inset:0;background:var(--bg);overflow:auto;padding:16px;max-width:760px;margin:auto}
+#guide img{max-width:100%;border-radius:8px}
+@media print{body>*:not(#guide){display:none}#guide{position:static;display:block}}
+</style></head><body>
+<video id="v" playsinline muted></video><div id="timers"></div>
+<div id="log"></div>
+<div id="bar"><button id="go">▶ Start coaching</button><button id="mark">📸 Mark step</button>
+<button id="save">📘 Save my guide</button></div>
+<div id="guide"></div>
+<script>
+const $=id=>document.getElementById(id);
+let ws,stream,ctxIn,ctxOut,proc,playT=0,sources=[],on=false,t0=0,frameTimer;
+const transcript=[],shots=[];let lastShot=0;
+const ts=()=>{const s=Math.floor((Date.now()-t0)/1000);return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')};
+function log(who,txt){const l=$('log');let last=l.lastElementChild;
+  if(last&&last.dataset.w===who){last.textContent+=txt}else{last=document.createElement('div');last.dataset.w=who;last.className=who==='You'?'u':'c';last.textContent=who+': '+txt;l.appendChild(last);
+    transcript.push({who,t:ts(),i:transcript.length});}
+  const e=transcript[transcript.length-1];if(e&&e.who===who)e.text=(e.text||'')+txt;l.scrollTop=l.scrollHeight}
+const b64=buf=>{let s='',b=new Uint8Array(buf);for(let i=0;i<b.length;i+=0x8000)s+=String.fromCharCode.apply(null,b.subarray(i,i+0x8000));return btoa(s)};
+const send=o=>ws&&ws.readyState===1&&ws.send(JSON.stringify(o));
+
+function snap(q=0.6,w=640){const v=$('v');if(!v.videoWidth)return null;const c=document.createElement('canvas');
+  c.width=w;c.height=Math.round(w*v.videoHeight/v.videoWidth);c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+  return c.toDataURL('image/jpeg',q).split(',')[1]}
+function mark(){const d=snap(.7,512);if(d&&shots.length<8)shots.push({t:ts(),b64:d})}
+
+function play(b64pcm){const bin=atob(b64pcm),n=bin.length/2,f=new Float32Array(n);
+  for(let i=0;i<n;i++){let v=bin.charCodeAt(2*i)|(bin.charCodeAt(2*i+1)<<8);if(v&0x8000)v-=0x10000;f[i]=v/32768}
+  const buf=ctxOut.createBuffer(1,n,24000);buf.copyToChannel(f,0);
+  const s=ctxOut.createBufferSource();s.buffer=buf;s.connect(ctxOut.destination);
+  playT=Math.max(playT,ctxOut.currentTime);s.start(playT);playT+=buf.duration;sources.push(s);
+  s.onended=()=>sources=sources.filter(x=>x!==s)}
+function stopPlayback(){sources.forEach(s=>{try{s.stop()}catch{}});sources=[];playT=0}
+
+function addTimer(sec,label){const el=document.createElement('div');el.className='t';$('timers').appendChild(el);let r=sec;
+  const iv=setInterval(()=>{el.textContent=`⏱ ${label} ${Math.floor(r/60)}:${String(r%60).padStart(2,'0')}`;
+    if(r--<=0){clearInterval(iv);el.textContent=`✅ ${label} done`;
+      send({realtimeInput:{text:`[Timer finished: ${label}] Tell the user now.`}});setTimeout(()=>el.remove(),8000)}},1000)}
+
+function onMsg(m){
+  if(m.serverContent){const s=m.serverContent;
+    if(s.interrupted)stopPlayback();
+    (s.modelTurn?.parts||[]).forEach(p=>p.inlineData&&play(p.inlineData.data));
+    if(s.inputTranscription?.text)log('You',s.inputTranscription.text);
+    if(s.outputTranscription?.text)log('Coach',s.outputTranscription.text)}
+  if(m.toolCall){const rs=m.toolCall.functionCalls.map(c=>{
+    if(c.name==='set_timer')addTimer(+c.args.seconds,c.args.label||'Timer');
+    return{id:c.id,name:c.name,response:{result:'timer started'}}});
+    send({toolResponse:{functionResponses:rs}})}}
+
+async function start(){
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:1280}},audio:{echoCancellation:true,noiseSuppression:true}});
+  $('v').srcObject=stream;await $('v').play();
+  ctxOut=new AudioContext({sampleRate:24000});ctxIn=new AudioContext({sampleRate:16000});
+  ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/live');
+  ws.onmessage=async e=>onMsg(JSON.parse(typeof e.data==='string'?e.data:await e.data.text()));
+  ws.onclose=()=>stop();
+  ws.onopen=()=>{t0=Date.now();
+    const src=ctxIn.createMediaStreamSource(stream);proc=ctxIn.createScriptProcessor(4096,1,1);
+    proc.onaudioprocess=e=>{const f=e.inputBuffer.getChannelData(0),p=new Int16Array(f.length);
+      for(let i=0;i<f.length;i++)p[i]=Math.max(-1,Math.min(1,f[i]))*32767;
+      send({realtimeInput:{audio:{data:b64(p.buffer),mimeType:'audio/pcm;rate=16000'}}})};
+    src.connect(proc);proc.connect(ctxIn.destination);
+    frameTimer=setInterval(()=>{const d=snap();if(d)send({realtimeInput:{video:{data:d,mimeType:'image/jpeg'}}});
+      if(Date.now()-lastShot>20000){lastShot=Date.now();mark()}},1000);}
+  on=true;$('go').textContent='■ Stop';$('go').classList.add('on')}
+function stop(){on=false;clearInterval(frameTimer);proc&&proc.disconnect();stream&&stream.getTracks().forEach(t=>t.stop());
+  ws&&ws.close();stopPlayback();$('go').textContent='▶ Start coaching';$('go').classList.remove('on')}
+$('go').onclick=()=>on?stop():start().catch(e=>alert(e.message));
+$('mark').onclick=mark;
+
+$('save').onclick=async()=>{
+  const g=$('guide');g.style.display='block';g.innerHTML='<p>Building your guide…</p>';
+  const text=transcript.map(x=>`[${x.t}] ${x.who}: ${x.text||''}`).join('\n');
+  const r=await fetch('/api/guide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transcript:text,shots})});
+  const d=await r.json();if(!r.ok){g.innerHTML='<p>Error: '+JSON.stringify(d)+'</p><button onclick="guide.style.display=\'none\'">Close</button>';return}
+  const esc=s=>String(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  g.innerHTML=`<h1>${esc(d.title)}</h1><p>${esc(d.summary)}</p>
+   ${d.toolsNeeded?.length?'<h3>You need</h3><ul>'+d.toolsNeeded.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':''}
+   ${d.safetyNotes?.length?'<h3>⚠ Safety</h3><ul>'+d.safetyNotes.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':''}
+   <h3>Steps</h3><ol>${d.steps.map(s=>`<li><b>${esc(s.instruction)}</b>${s.timestamp?` <small>(${esc(s.timestamp)})</small>`:''}
+   ${s.tip?'<br><i>Tip: '+esc(s.tip)+'</i>':''}${s.shotIndex>=0&&shots[s.shotIndex]?'<br><img src="data:image/jpeg;base64,'+shots[s.shotIndex].b64+'">':''}</li>`).join('')}</ol>
+   <button onclick="window.print()">Print / Save PDF</button> <button onclick="guide.style.display='none'">Close</button>`};
+</script></body></html>
