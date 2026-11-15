@@ -123,11 +123,11 @@ wss.on('connection', (client, req) => {
               parameters: { type: 'OBJECT', required: ['seconds','label'], properties: {
                 seconds: { type: 'INTEGER' }, label: { type: 'STRING' } } } },
             { name: 'highlight',
-              description: 'Draw a pulsing circle and label on the camera overlay to point at a specific part of the frame.',
+              description: 'Draw a pulsing target reticle and label on the camera overlay to point at a specific destination part or port in the frame.',
               parameters: { type: 'OBJECT', required: ['x','y','label'], properties: {
-                x: { type: 'NUMBER', description: 'Horizontal position 0–100 (percent of frame width)' },
-                y: { type: 'NUMBER', description: 'Vertical position 0–100 (percent of frame height)' },
-                label: { type: 'STRING', description: 'Short label shown next to the circle' } } } },
+                x: { type: 'NUMBER', description: 'Horizontal position 0–100% of the camera frame (0=left, 50=center, 100=right). Target the destination socket, not the user hand.' },
+                y: { type: 'NUMBER', description: 'Vertical position 0–100% of the camera frame (0=top, 50=center, 100=bottom). Target the destination socket, not the user hand.' },
+                label: { type: 'STRING', description: 'Short label of the destination port or part, e.g. "WAN (Internet) Port" or "Power Jack"' } } } },
             { name: 'update_progress',
               description: 'Update the progress bar shown at the top of the screen.',
               parameters: { type: 'OBJECT', required: ['step','total','title'], properties: {

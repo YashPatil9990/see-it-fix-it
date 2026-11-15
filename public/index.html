@@ -387,15 +387,42 @@ function addTimer(sec,label){
   },1000);
 }
 
-// Feature 1: highlight(x, y, label)
+// Feature 1: highlight(x, y, label) with exact object-fit: cover coordinate projection
 function highlight(x,y,label){
   const canvas=$('hlCanvas');
   const wrap=$('videoWrap');
+  const v=$('v');
   canvas.width=wrap.offsetWidth;
   canvas.height=wrap.offsetHeight;
   const ctx=canvas.getContext('2d');
-  const cx=wrap.offsetWidth*x/100;
-  const cy=wrap.offsetHeight*y/100;
+
+  // Project camera frame percentage (0-100) to actual rendered video coordinates on screen
+  let cx, cy;
+  if(v.videoWidth && v.videoHeight){
+    const videoRatio = v.videoWidth / v.videoHeight;
+    const screenRatio = canvas.width / canvas.height;
+    if(screenRatio < videoRatio){
+      // Video is cropped horizontally (common in portrait mobile)
+      const renderedW = canvas.height * videoRatio;
+      const offsetX = (renderedW - canvas.width) / 2;
+      cx = (x / 100 * renderedW) - offsetX;
+      cy = (y / 100 * canvas.height);
+    } else {
+      // Video is cropped vertically
+      const renderedH = canvas.width / videoRatio;
+      const offsetY = (renderedH - canvas.height) / 2;
+      cx = (x / 100 * canvas.width);
+      cy = (y / 100 * renderedH) - offsetY;
+    }
+  } else {
+    cx = canvas.width * x / 100;
+    cy = canvas.height * y / 100;
+  }
+
+  // Ensure highlight stays within visible bounds
+  cx = Math.max(20, Math.min(canvas.width - 20, cx));
+  cy = Math.max(20, Math.min(canvas.height - 20, cy));
+
   const R=30;
   let frame=0,raf;
   const DURATION=3000,FPS=60,TOTAL=Math.round(DURATION/1000*FPS);
@@ -412,16 +439,30 @@ function highlight(x,y,label){
     ctx.beginPath();ctx.arc(cx,cy,r,0,2*Math.PI);
     ctx.strokeStyle='rgba(0,242,254,0.95)';ctx.lineWidth=3.5;ctx.stroke();
     
+    // Crosshair ticks
+    ctx.beginPath();
+    ctx.moveTo(cx - r - 8, cy); ctx.lineTo(cx - r + 4, cy);
+    ctx.moveTo(cx + r - 4, cy); ctx.lineTo(cx + r + 8, cy);
+    ctx.moveTo(cx, cy - r - 8); ctx.lineTo(cx, cy - r + 4);
+    ctx.moveTo(cx, cy + r - 4); ctx.lineTo(cx, cy + r + 8);
+    ctx.strokeStyle='#00f2fe';ctx.lineWidth=2;ctx.stroke();
+
     // Center reticle dot
     ctx.beginPath();ctx.arc(cx,cy,4.5,0,2*Math.PI);
     ctx.fillStyle='#00f2fe';ctx.fill();
     
-    // Label Badge
+    // Label Badge with boundary check
     ctx.font='600 13px "Space Grotesk",system-ui,sans-serif';
     const tw=ctx.measureText(label).width;
-    const px=cx+r+10,py=cy;
-    ctx.fillStyle='rgba(3,7,18,0.92)';
     const pad=7;
+    let px=cx+r+12, py=cy;
+    if(px + tw + pad*2 > canvas.width){
+      px = cx - r - 12 - tw - pad*2; // flip to left side if close to right edge
+    }
+    px = Math.max(pad, px);
+    py = Math.max(20, Math.min(canvas.height - 20, py));
+
+    ctx.fillStyle='rgba(3,7,18,0.92)';
     ctx.beginPath();ctx.roundRect(px-pad,py-13-pad,tw+pad*2,20+pad*2,8);ctx.fill();
     ctx.strokeStyle='rgba(0,242,254,0.5)';ctx.lineWidth=1;ctx.stroke();
     ctx.fillStyle='#00f2fe';ctx.fillText(label,px,py+4);
