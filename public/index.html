@@ -1,75 +1,320 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Over-the-Shoulder</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Over-the-Shoulder • Spatial Vision AI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0f1115;--fg:#f2f4f8;--card:#1b1f27;--acc:#4f8cff;--bad:#ff5d5d}
-@media(prefers-color-scheme:light){:root{--bg:#f6f7fa;--fg:#14171c;--card:#fff}}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:16px system-ui,sans-serif;display:flex;flex-direction:column;height:100dvh}
-video{width:100%;flex:1;min-height:0;object-fit:cover;background:#000}
-#log{height:22dvh;overflow:auto;padding:10px;background:var(--card);font-size:14px}
-.u{color:var(--acc)}.c{opacity:.95}
-#bar{display:flex;gap:8px;padding:10px;align-items:center;flex-wrap:wrap}
-button,select{border:0;border-radius:12px;padding:12px 16px;font-size:16px;background:var(--card);color:var(--fg);cursor:pointer}
-#go{background:var(--acc);color:#fff;flex:1}#go.on{background:var(--bad)}
-#reconnect{background:#f59e0b;color:#fff;display:none}
-#timers{position:fixed;top:10px;right:10px;display:flex;flex-direction:column;gap:6px}
-.t{background:rgba(0,0,0,.7);color:#fff;padding:6px 10px;border-radius:10px;font-size:14px}
-#status{position:fixed;top:12px;left:12px;z-index:10;padding:6px 12px;border-radius:20px;font-size:13px;font-weight:600;background:rgba(0,0,0,.75);color:#fff;display:inline-flex;align-items:center;gap:6px}
-#status::before{content:'';width:8px;height:8px;border-radius:50%;background:#888;display:inline-block}
-#status.connecting::before{background:#f59e0b}
-#status.listening::before{background:#10b981}
-#status.speaking::before{background:#3b82f6;box-shadow:0 0 8px #3b82f6}
-#status.error::before{background:#ef4444}
-/* Safety disclaimer */
-#disclaimer{text-align:center;font-size:11px;padding:4px 8px;opacity:.6;line-height:1.4}
-/* Guide overlay */
-#guide{display:none;position:fixed;inset:0;background:var(--bg);overflow:auto;padding:16px 20px;z-index:100}
-#guide-inner{max-width:720px;margin:auto}
-#guide h1{font-size:1.4rem;margin-top:0}
-#guide h3{margin-top:1.2rem}
-#guide ol{padding-left:1.4rem}
-#guide li{margin-bottom:1rem;line-height:1.6}
-#guide img{max-width:100%;border-radius:8px;margin-top:8px;display:block}
-#guide small{color:#888}
-#guide .guide-btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
-#guide .guide-btns button{flex:1;min-width:120px}
-@media print{body>*:not(#guide){display:none}#guide{position:static;display:block}#guide .guide-btns{display:none}}
-/* Narrow screen tweaks */
-@media(max-width:420px){
-  button,select{padding:10px 12px;font-size:15px}
-  #log{font-size:13px}
+:root{
+  --bg:#030712;--glass:rgba(15,23,42,0.72);--glass-thick:rgba(15,23,42,0.88);
+  --border:rgba(255,255,255,0.12);--border-bright:rgba(56,189,248,0.4);
+  --fg:#f8fafc;--fg-dim:#94a3b8;--fg-muted:#64748b;
+  --cyan:#00f2fe;--blue:#4facfe;--neon-grad:linear-gradient(135deg,#00f2fe 0%,#4facfe 100%);
+  --danger-grad:linear-gradient(135deg,#ff416c 0%,#ff4b2b 100%);
+  --succ:#10b981;--warn:#f59e0b;
 }
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100dvh;margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 'Space Grotesk',system-ui,sans-serif;overflow:hidden}
+
+/* Fullscreen Camera Cockpit */
+#appRoot{position:relative;width:100%;height:100dvh;display:flex;flex-direction:column;background:#000;overflow:hidden}
+
+/* Video Wrapper: Edge-to-Edge Viewfinder */
+#videoWrap{
+  position:absolute;inset:0;width:100%;height:100%;z-index:1;background:#000;
+  display:flex;align-items:center;justify-content:center;overflow:hidden;
+}
+video{width:100%;height:100%;object-fit:cover;display:block}
+
+/* Real-time AI Laser Scanning Line */
+#scanLine{
+  display:none;position:absolute;left:0;right:0;height:2px;z-index:8;
+  background:linear-gradient(90deg,transparent 0%,#00f2fe 50%,transparent 100%);
+  box-shadow:0 0 12px #00f2fe,0 0 24px #00f2fe;pointer-events:none;
+}
+.scanning #scanLine{display:block;animation:scanAnim 2.8s cubic-bezier(0.4,0,0.2,1) infinite}
+@keyframes scanAnim{0%{top:0%;opacity:0}10%{opacity:1}90%{opacity:1}100%{top:100%;opacity:0}}
+
+/* AR Viewfinder Corner Brackets & Center Crosshair */
+.ar-overlay{position:absolute;inset:20px;pointer-events:none;z-index:7;transition:opacity .3s}
+.ar-bracket{position:absolute;width:28px;height:28px;border:2.5px solid rgba(0,242,254,0.7)}
+.b-tl{top:0;left:0;border-right:none;border-bottom:none;border-radius:10px 0 0 0}
+.b-tr{top:0;right:0;border-left:none;border-bottom:none;border-radius:0 10px 0 0}
+.b-bl{bottom:0;left:0;border-right:none;border-top:none;border-radius:0 0 0 10px}
+.b-br{bottom:0;right:0;border-left:none;border-top:none;border-radius:0 0 10px 0}
+.ar-crosshair{
+  position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:24px;height:24px;border:1px dashed rgba(255,255,255,0.25);border-radius:50%;
+}
+.ar-crosshair::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:4px;height:4px;background:#00f2fe;border-radius:50%}
+
+/* Standby Onboarding Backdrop */
+#standbyOverlay{
+  position:absolute;inset:0;z-index:6;background:radial-gradient(circle at center,rgba(15,23,42,0.85) 0%,rgba(3,7,18,0.95) 100%);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;text-align:center;
+}
+.hero-orb{
+  width:88px;height:88px;border-radius:50%;position:relative;display:grid;place-items:center;
+  background:radial-gradient(circle,rgba(0,242,254,0.2) 0%,rgba(79,172,254,0.05) 70%);
+  border:1px solid rgba(0,242,254,0.4);box-shadow:0 0 40px rgba(0,242,254,0.3);margin-bottom:18px;
+}
+.hero-orb-ring{
+  position:absolute;inset:-6px;border-radius:50%;border:1.5px dashed rgba(0,242,254,0.5);
+  animation:orbSpin 18s linear infinite;
+}
+@keyframes orbSpin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+.hero-title{font-size:24px;font-weight:700;letter-spacing:-0.03em;margin:0 0 8px;background:var(--neon-grad);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.hero-sub{font-size:13px;color:var(--fg-dim);max-width:320px;line-height:1.5;margin:0 0 16px}
+.hero-tags{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;max-width:320px}
+.hero-tag{font-size:11px;font-weight:500;padding:4px 10px;border-radius:20px;background:rgba(255,255,255,0.06);border:1px solid var(--border);color:var(--fg-dim)}
+
+/* Canvas Highlight Overlay */
+#hlCanvas{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9}
+
+/* Top Dynamic Island HUD */
+#topHUD{
+  position:absolute;top:max(14px,env(safe-area-inset-top,14px));left:16px;right:16px;z-index:20;
+  display:flex;align-items:center;justify-content:space-between;pointer-events:none;
+}
+.hud-pill{
+  pointer-events:auto;background:var(--glass-thick);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border:1px solid var(--border);border-radius:30px;padding:6px 14px;box-shadow:0 8px 32px rgba(0,0,0,0.4);
+  display:flex;align-items:center;gap:10px;
+}
+.brand-badge{font-size:12px;font-weight:700;letter-spacing:0.02em;color:#fff;display:flex;align-items:center;gap:6px}
+.brand-badge span{color:#00f2fe}
+
+/* Status Pill */
+#status{
+  padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;letter-spacing:0.04em;
+  background:rgba(255,255,255,0.06);border:1px solid var(--border);color:var(--fg);
+  display:inline-flex;align-items:center;gap:6px;transition:all .25s ease;
+}
+#status::before{content:'';width:7px;height:7px;border-radius:50%;background:#888;display:inline-block}
+#status.connecting{background:rgba(245,158,11,0.2);border-color:rgba(245,158,11,0.4);color:#fbbf24}
+#status.connecting::before{background:var(--warn);box-shadow:0 0 8px var(--warn);animation:blink 1.2s infinite}
+#status.listening{background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.4);color:#34d399}
+#status.listening::before{background:var(--succ);box-shadow:0 0 8px var(--succ);animation:blink 1.6s infinite}
+#status.speaking{background:rgba(0,242,254,0.2);border-color:rgba(0,242,254,0.4);color:#00f2fe}
+#status.speaking::before{background:#00f2fe;box-shadow:0 0 10px #00f2fe;animation:blink .7s infinite}
+#status.error{background:rgba(239,68,68,0.2);border-color:rgba(239,68,68,0.4);color:#f87171}
+#status.error::before{background:#ef4444}
+@keyframes blink{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.4);opacity:.5}}
+
+/* Audio Equalizer Waveform in HUD */
+.wave-bars{display:none;align-items:center;gap:2.5px;height:12px}
+#status.speaking + .wave-bars{display:flex}
+.wave-bar{width:2.5px;border-radius:2px;background:#00f2fe;animation:waveJump .6s ease-in-out infinite alternate}
+.wave-bar:nth-child(2){animation-delay:.15s;height:14px}
+.wave-bar:nth-child(3){animation-delay:.3s;height:10px}
+@keyframes waveJump{0%{height:4px}100%{height:14px}}
+
+/* Feature 2a: Progress Bar Banner */
+#progressBar{
+  display:none;position:absolute;top:max(70px,calc(env(safe-area-inset-top,14px) + 56px));left:50%;
+  transform:translateX(-50%);z-index:25;background:var(--glass-thick);backdrop-filter:blur(24px);
+  -webkit-backdrop-filter:blur(24px);color:#fff;font-size:12px;font-weight:600;padding:8px 16px;
+  border-radius:24px;border:1px solid var(--border-bright);box-shadow:0 8px 30px rgba(0,0,0,0.5),0 0 20px rgba(0,242,254,0.25);
+  max-width:92%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+
+/* Feature 2b: Safety Warning Banner */
+#safetyBanner{
+  display:none;position:absolute;top:max(118px,calc(env(safe-area-inset-top,14px) + 104px));left:16px;right:16px;
+  z-index:30;background:linear-gradient(135deg,rgba(220,38,38,0.95),rgba(185,28,28,0.98));
+  backdrop-filter:blur(16px);color:#fff;text-align:center;font-size:13px;font-weight:700;
+  padding:12px 18px;border-radius:16px;box-shadow:0 12px 35px rgba(220,38,38,0.6);
+  border:1px solid rgba(255,255,255,0.3);animation:dropAlert .3s cubic-bezier(0.16,1,0.3,1);
+}
+@keyframes dropAlert{0%{transform:translateY(-20px);opacity:0}100%{transform:translateY(0);opacity:1}}
+
+/* Active Timers */
+#timers{position:absolute;top:max(70px,calc(env(safe-area-inset-top,14px) + 56px));right:16px;z-index:25;display:flex;flex-direction:column;gap:6px}
+.t{
+  background:rgba(15,23,42,0.92);backdrop-filter:blur(16px);color:#fff;padding:6px 12px;
+  border-radius:12px;font-size:12px;font-weight:600;font-family:'JetBrains Mono',monospace;
+  border:1px solid rgba(0,242,254,0.35);box-shadow:0 6px 20px rgba(0,0,0,0.4);
+}
+
+/* Floating Live Guidance Feed (AR Subtitles Style) */
+#feedContainer{
+  position:absolute;bottom:calc(104px + env(safe-area-inset-bottom,16px));left:16px;right:16px;
+  max-height:22dvh;display:flex;flex-direction:column;justify-content:flex-end;z-index:18;pointer-events:none;
+}
+#log{
+  overflow-y:auto;pointer-events:auto;display:flex;flex-direction:column;gap:8px;
+  padding:4px;mask-image:linear-gradient(to bottom,transparent 0%,black 18%);
+  -webkit-mask-image:linear-gradient(to bottom,transparent 0%,black 18%);
+}
+.log-card{
+  background:var(--glass-thick);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border:1px solid var(--border);border-radius:14px;padding:8px 12px;font-size:13px;line-height:1.45;
+  box-shadow:0 4px 20px rgba(0,0,0,0.3);animation:subSlide .25s ease-out;max-width:92%;
+}
+@keyframes subSlide{0%{opacity:0;transform:translateY(8px)}100%{opacity:1;transform:translateY(0)}}
+.log-card.u{border-left:3px solid #00f2fe;align-self:flex-start}
+.log-card.c{border-left:3px solid #818cf8;align-self:flex-start}
+.log-speaker{font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;margin-bottom:2px}
+.u .log-speaker{color:#00f2fe}
+.c .log-speaker{color:#a5b4fc}
+
+/* Bottom Safe Disclaimer */
+#disclaimer{display:none}
+
+/* Bottom Floating Control Dock (Thumb Optimized) */
+#bar{
+  position:absolute;bottom:0;left:0;right:0;z-index:22;
+  padding:12px 16px max(14px,env(safe-area-inset-bottom,14px));
+  background:linear-gradient(to top,rgba(3,7,18,0.95) 0%,rgba(3,7,18,0.8) 60%,transparent 100%);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  display:flex;gap:10px;align-items:center;justify-content:center;
+}
+.dock-inner{display:flex;align-items:center;gap:10px;width:100%;max-width:480px}
+
+button{
+  border:0;border-radius:24px;padding:12px 16px;font-size:13px;font-weight:600;
+  cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  background:var(--glass);backdrop-filter:blur(16px);border:1px solid var(--border);color:var(--fg);
+  transition:all .2s cubic-bezier(0.16,1,0.3,1);font-family:inherit;user-select:none;
+}
+button:active{transform:scale(0.96)}
+
+/* Main Processing Button */
+#go{
+  flex:2;background:var(--neon-grad);color:#030712;font-weight:700;font-size:14px;
+  border:none;box-shadow:0 0 24px rgba(0,242,254,0.4);letter-spacing:-0.01em;padding:14px 20px;
+}
+#go.on{background:var(--danger-grad);color:#fff;box-shadow:0 0 24px rgba(255,65,108,0.45)}
+
+#mark{flex:1;background:var(--glass-thick)}
+#save{flex:1.2;background:rgba(99,102,241,0.18);border-color:rgba(99,102,241,0.4);color:#c7d2fe}
+#reconnect{background:#f59e0b;color:#fff;display:none;font-weight:700;border:none}
+
+/* Guide Modal Overlay */
+#guide{
+  display:none;position:fixed;inset:0;background:rgba(3,7,18,0.92);
+  backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
+  overflow-y:auto;padding:20px;z-index:100;
+}
+#guide-inner{
+  max-width:680px;margin:20px auto;background:#0f172a;border:1px solid var(--border-bright);
+  border-radius:24px;padding:24px;box-shadow:0 24px 60px rgba(0,0,0,0.8);
+}
+#guide h1{font-size:1.5rem;margin:0 0 8px;font-weight:700;color:#fff}
+#guide h3{margin:1.4rem 0 8px;font-size:1.1rem;color:#94a3b8;border-bottom:1px solid var(--border);padding-bottom:6px}
+#guide ol{padding-left:1.2rem}
+#guide li{margin-bottom:1rem;line-height:1.6}
+#guide img{max-width:100%;border-radius:12px;margin-top:8px;border:1px solid var(--border);display:block}
+#guide small{color:var(--fg-muted)}
+#guide .guide-btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}
+#guide .guide-btns button{flex:1;min-width:120px;padding:12px 16px}
+#shareBtn{background:var(--neon-grad);color:#030712;border:none;font-weight:700}
 </style></head><body>
-<div id="status">Ready</div>
-<video id="v" playsinline muted></video>
-<div id="timers"></div>
-<div id="log"></div>
-<div id="disclaimer">⚠ AI coach. Not a substitute for a licensed professional for gas, electrical, or medical tasks.</div>
-<div id="bar">
-  <button id="go">▶ Start coaching</button>
-  <button id="mark">📸 Mark step</button>
-  <button id="save">📘 Save my guide</button>
-  <button id="reconnect">🔄 Reconnect</button>
+
+<div id="appRoot">
+  <!-- Edge-to-Edge Viewfinder Stage -->
+  <div id="videoWrap">
+    <!-- Standby AR Splash -->
+    <div id="standbyOverlay">
+      <div class="hero-orb">
+        <div class="hero-orb-ring"></div>
+        <span style="font-size:34px">✦</span>
+      </div>
+      <h1 class="hero-title">Spatial Vision AI</h1>
+      <p class="hero-sub">Hands-free real-time audio coaching with visual AR guidance. Aim camera at your project to begin.</p>
+      <div class="hero-tags">
+        <span class="hero-tag">🔌 WiFi Routers</span>
+        <span class="hero-tag">🍳 Smart Cooking</span>
+        <span class="hero-tag">🔧 Assemblies</span>
+        <span class="hero-tag">⚡ Circuitry</span>
+      </div>
+    </div>
+
+    <!-- Laser Scanning Beam -->
+    <div id="scanLine"></div>
+
+    <!-- AR Reticle -->
+    <div class="ar-overlay">
+      <div class="ar-bracket b-tl"></div>
+      <div class="ar-bracket b-tr"></div>
+      <div class="ar-bracket b-bl"></div>
+      <div class="ar-bracket b-br"></div>
+      <div class="ar-crosshair"></div>
+    </div>
+
+    <!-- Live Camera Feed & Highlight Canvas -->
+    <video id="v" playsinline muted></video>
+    <canvas id="hlCanvas"></canvas>
+  </div>
+
+  <!-- Top Dynamic Island HUD -->
+  <div id="topHUD">
+    <div class="hud-pill">
+      <div class="brand-badge"><span>●</span> SPATIAL COACH</div>
+      <div id="status">Ready</div>
+      <div class="wave-bars">
+        <div class="wave-bar"></div>
+        <div class="wave-bar"></div>
+        <div class="wave-bar"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dynamic Feedback Overlays -->
+  <div id="progressBar"></div>
+  <div id="timers"></div>
+  <div id="safetyBanner"></div>
+
+  <!-- Floating Live Subtitle Feed -->
+  <div id="feedContainer">
+    <div id="log"></div>
+  </div>
+
+  <div id="disclaimer">⚠ AI coach. Not a substitute for a licensed professional for gas, electrical, or medical tasks.</div>
+
+  <!-- Ergonomic Bottom Action Dock -->
+  <div id="bar">
+    <div class="dock-inner">
+      <button id="go">▶ Start processing</button>
+      <button id="mark">📸 Mark step</button>
+      <button id="save">📘 Save my guide</button>
+      <button id="reconnect">🔄 Reconnect</button>
+    </div>
+  </div>
+
+  <!-- Guide Viewer Modal -->
+  <div id="guide"><div id="guide-inner"></div></div>
 </div>
-<div id="guide"><div id="guide-inner"></div></div>
+
 <script>
 const $=id=>document.getElementById(id);
 let ws,stream,ctxIn,ctxOut,proc,playT=0,sources=[],on=false,t0=0,frameTimer;
 const transcript=[],shots=[];let lastShot=0;
 
 // MM:SS timestamp from session start
-const ts=()=>{const s=Math.floor((Date.now()-t0)/1000);return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')};
+const ts=()=>{
+  if(!t0)return '00:00';
+  const s=Math.floor((Date.now()-t0)/1000);
+  return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+};
 
 // Log transcription lines; accumulate text into transcript array
 function log(who,txt){
   const l=$('log');let last=l.lastElementChild;
-  if(last&&last.dataset.w===who){last.textContent+=txt}
-  else{last=document.createElement('div');last.dataset.w=who;last.className=who==='You'?'u':'c';
-    last.textContent=who+': '+txt;l.appendChild(last);
-    transcript.push({who,t:ts(),i:transcript.length});}
+  if(last&&last.dataset.w===who){
+    const bubble=last.querySelector('.log-text');
+    if(bubble)bubble.textContent+=txt;
+  } else {
+    last=document.createElement('div');last.dataset.w=who;
+    last.className='log-card '+(who==='You'?'u':'c');
+    last.innerHTML=`<div class="log-speaker">${who==='You'?'You':'✨ Spatial Coach'}</div><div class="log-text">${txt}</div>`;
+    l.appendChild(last);
+    transcript.push({who,t:ts(),i:transcript.length});
+  }
   const e=transcript[transcript.length-1];if(e&&e.who===who)e.text=(e.text||'')+txt;
-  l.scrollTop=l.scrollHeight}
+  l.scrollTop=l.scrollHeight;
+}
 
 // Base64 encode an ArrayBuffer
 const b64=buf=>{let s='',b=new Uint8Array(buf);for(let i=0;i<b.length;i+=0x8000)s+=String.fromCharCode.apply(null,b.subarray(i,i+0x8000));return btoa(s)};
@@ -83,111 +328,232 @@ function snap(q=0.6,w=640){
   const c=document.createElement('canvas');
   c.width=w;c.height=Math.round(w*v.videoHeight/v.videoWidth);
   c.getContext('2d').drawImage(v,0,0,c.width,c.height);
-  return c.toDataURL('image/jpeg',q).split(',')[1]}
+  return c.toDataURL('image/jpeg',q).split(',')[1];
+}
 
-// --- Phase 4 extra: keep 8 most evenly distributed frames across the whole session ---
+// Keep 8 most evenly distributed frames across the session
 function mark(){
   const d=snap(.7,512);if(!d)return;
   const now=Date.now();
   const entry={t:ts(),b64:d,ms:now-t0};
-  if(shots.length<8){shots.push(entry);return;}
-  // Replace the shot whose timestamp deviates most from ideal even spacing
-  const dur=now-t0;// ms elapsed
+  if(shots.length<8){shots.push(entry);showSnapFeedback();return;}
+  const dur=now-t0;
   let worst=0,maxDiff=0;
   shots.forEach((sh,i)=>{
-    const ideal=Math.round(dur*(i+1)/8);// ideal ms for slot i
+    const ideal=Math.round(dur*(i+1)/8);
     const diff=Math.abs(sh.ms-ideal);
-    if(diff>maxDiff){maxDiff=diff;worst=i;}});
-  shots[worst]=entry;}
+    if(diff>maxDiff){maxDiff=diff;worst=i;}
+  });
+  shots[worst]=entry;
+  showSnapFeedback();
+}
+
+function showSnapFeedback(){
+  const b=$('mark');
+  const orig=b.textContent;
+  b.textContent='✓ Marked';
+  setTimeout(()=>b.textContent=orig,1600);
+}
 
 // Status pill
-const setStatus=(cls,txt)=>{const el=$('status');if(!el)return;el.className=cls||'';el.textContent=txt||(cls?cls[0].toUpperCase()+cls.slice(1):'Ready')};
+const setStatus=(cls,txt)=>{
+  const el=$('status');if(!el)return;
+  el.className=cls||'';
+  el.textContent=txt||(cls?cls[0].toUpperCase()+cls.slice(1):'Ready');
+};
 
-// --- Audio playback queue ---
+// Audio playback queue
 function play(b64pcm){
   const bin=atob(b64pcm),n=bin.length/2,f=new Float32Array(n);
   for(let i=0;i<n;i++){let v=bin.charCodeAt(2*i)|(bin.charCodeAt(2*i+1)<<8);if(v&0x8000)v-=0x10000;f[i]=v/32768}
   const buf=ctxOut.createBuffer(1,n,24000);buf.copyToChannel(f,0);
   const s=ctxOut.createBufferSource();s.buffer=buf;s.connect(ctxOut.destination);
   playT=Math.max(playT,ctxOut.currentTime);s.start(playT);playT+=buf.duration;sources.push(s);
-  s.onended=()=>{sources=sources.filter(x=>x!==s);if(!sources.length)setStatus('listening','Listening')}}
+  s.onended=()=>{sources=sources.filter(x=>x!==s);if(!sources.length)setStatus('listening','Listening');};
+}
 
-function stopPlayback(){sources.forEach(s=>{try{s.stop()}catch{}});sources=[];playT=0}
+function stopPlayback(){sources.forEach(s=>{try{s.stop()}catch{}});sources=[];playT=0;}
 
-// --- Timer tool UI ---
+// Timer tool UI
 function addTimer(sec,label){
   const el=document.createElement('div');el.className='t';$('timers').appendChild(el);let r=sec;
   const iv=setInterval(()=>{
     el.textContent=`⏱ ${label} ${Math.floor(r/60)}:${String(r%60).padStart(2,'0')}`;
-    if(r--<=0){clearInterval(iv);el.textContent=`✅ ${label} done`;
+    if(r--<=0){
+      clearInterval(iv);el.textContent=`✅ ${label} done`;
       send({realtimeInput:{text:`[Timer finished: ${label}] Tell the user now.`}});
-      setTimeout(()=>el.remove(),8000)}},1000)}
+      setTimeout(()=>el.remove(),8000);
+    }
+  },1000);
+}
 
-// --- Incoming message handler ---
+// Feature 1: highlight(x, y, label)
+function highlight(x,y,label){
+  const canvas=$('hlCanvas');
+  const wrap=$('videoWrap');
+  canvas.width=wrap.offsetWidth;
+  canvas.height=wrap.offsetHeight;
+  const ctx=canvas.getContext('2d');
+  const cx=wrap.offsetWidth*x/100;
+  const cy=wrap.offsetHeight*y/100;
+  const R=30;
+  let frame=0,raf;
+  const DURATION=3000,FPS=60,TOTAL=Math.round(DURATION/1000*FPS);
+  function draw(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    const phase=(Math.sin(frame/FPS*2*Math.PI*2)+1)/2;
+    const r=R*(1+0.35*phase);
+    
+    // Outer radial glow
+    ctx.beginPath();ctx.arc(cx,cy,r+14,0,2*Math.PI);
+    ctx.fillStyle=`rgba(0,242,254,${0.25*phase})`;ctx.fill();
+    
+    // Hologram target ring
+    ctx.beginPath();ctx.arc(cx,cy,r,0,2*Math.PI);
+    ctx.strokeStyle='rgba(0,242,254,0.95)';ctx.lineWidth=3.5;ctx.stroke();
+    
+    // Center reticle dot
+    ctx.beginPath();ctx.arc(cx,cy,4.5,0,2*Math.PI);
+    ctx.fillStyle='#00f2fe';ctx.fill();
+    
+    // Label Badge
+    ctx.font='600 13px "Space Grotesk",system-ui,sans-serif';
+    const tw=ctx.measureText(label).width;
+    const px=cx+r+10,py=cy;
+    ctx.fillStyle='rgba(3,7,18,0.92)';
+    const pad=7;
+    ctx.beginPath();ctx.roundRect(px-pad,py-13-pad,tw+pad*2,20+pad*2,8);ctx.fill();
+    ctx.strokeStyle='rgba(0,242,254,0.5)';ctx.lineWidth=1;ctx.stroke();
+    ctx.fillStyle='#00f2fe';ctx.fillText(label,px,py+4);
+    
+    frame++;
+    if(frame<TOTAL)raf=requestAnimationFrame(draw);
+    else ctx.clearRect(0,0,canvas.width,canvas.height);
+  }
+  cancelAnimationFrame(raf);draw();
+}
+
+// Feature 2a: update_progress(step, total, title)
+function updateProgress(step,total,title){
+  const bar=$('progressBar');
+  bar.innerHTML=`<span style="color:#00f2fe;font-weight:700">Step ${step}/${total}</span> &bull; ${title}`;
+  bar.style.display='block';
+}
+
+// Feature 2b: show_safety_warning(message)
+let safetyTimer=null;
+function showSafetyWarning(message){
+  const banner=$('safetyBanner');
+  banner.textContent='⚠ '+message;
+  banner.style.display='block';
+  clearTimeout(safetyTimer);
+  safetyTimer=setTimeout(()=>{banner.style.display='none';},5000);
+}
+
+// Incoming message handler
 function onMsg(m){
-  if(m.serverContent){const s=m.serverContent;
-    if(s.interrupted){stopPlayback();setStatus('listening','Listening')}
-    (s.modelTurn?.parts||[]).forEach(p=>{if(p.inlineData){setStatus('speaking','Speaking');play(p.inlineData.data)}});
+  if(m.serverContent){
+    const s=m.serverContent;
+    if(s.interrupted){stopPlayback();setStatus('listening','Listening');}
+    (s.modelTurn?.parts||[]).forEach(p=>{if(p.inlineData){setStatus('speaking','Speaking');play(p.inlineData.data);}});
     if(s.inputTranscription?.text)log('You',s.inputTranscription.text);
     if(s.outputTranscription?.text)log('Coach',s.outputTranscription.text);
-    if(s.turnComplete&&!sources.length)setStatus('listening','Listening')}
+    if(s.turnComplete&&!sources.length)setStatus('listening','Listening');
+  }
   if(m.toolCall){
     const rs=m.toolCall.functionCalls.map(c=>{
       if(c.name==='set_timer')addTimer(+c.args.seconds,c.args.label||'Timer');
-      return{id:c.id,name:c.name,response:{result:'timer started'}}});
-    send({toolResponse:{functionResponses:rs}})}}
+      if(c.name==='highlight')highlight(+c.args.x,+c.args.y,c.args.label||'');
+      if(c.name==='update_progress')updateProgress(+c.args.step,+c.args.total,c.args.title||'');
+      if(c.name==='show_safety_warning')showSafetyWarning(c.args.message||'');
+      return{id:c.id,name:c.name,response:{result:'ok'}};
+    });
+    send({toolResponse:{functionResponses:rs}});
+  }
+}
 
-// --- Session start ---
+// Session start
 async function start(){
   setStatus('connecting','Connecting...');
   $('reconnect').style.display='none';
-  stream=await navigator.mediaDevices.getUserMedia(
-    {video:{facingMode:'environment',width:{ideal:1280}},audio:{echoCancellation:true,noiseSuppression:true}});
-  $('v').srcObject=stream;await $('v').play();
-  ctxOut=new AudioContext({sampleRate:24000});
-  ctxIn=new AudioContext({sampleRate:16000});
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    const msg='Camera & microphone require HTTPS or localhost.\n\nTo enable on phone Chrome:\n1. Go to chrome://flags/#unsafely-treat-insecure-origin-as-secure\n2. Add: '+location.origin+'\n3. Enable and Relaunch Chrome.\n\nOr test on laptop at http://localhost:3000';
+    alert(msg);
+    setStatus('error','HTTPS required');
+    return;
+  }
+  try {
+    stream=await navigator.mediaDevices.getUserMedia(
+      {video:{facingMode:{ideal:'environment'},width:{ideal:1280}},audio:{echoCancellation:true,noiseSuppression:true}});
+  } catch(e) {
+    try {
+      stream=await navigator.mediaDevices.getUserMedia({video:true,audio:true});
+    } catch(err) {
+      alert('Camera/Mic error: '+err.message);
+      setStatus('error','Camera error');
+      return;
+    }
+  }
+  $('v').srcObject=stream;
+  try { await $('v').play(); } catch(e){}
+  $('standbyOverlay').style.display='none';
+  $('appRoot').classList.add('scanning');
+  
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  try { ctxOut=new AudioCtx({sampleRate:24000}); } catch(e) { ctxOut=new AudioCtx(); }
+  try { ctxIn=new AudioCtx({sampleRate:16000}); } catch(e) { ctxIn=new AudioCtx(); }
   if(ctxOut.state==='suspended')await ctxOut.resume();
   if(ctxIn.state==='suspended')await ctxIn.resume();
+
   ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/live');
   ws.onmessage=async e=>onMsg(JSON.parse(typeof e.data==='string'?e.data:await e.data.text()));
-  ws.onclose=()=>{stop(false);setStatus('error','Disconnected');$('reconnect').style.display=''};
+  ws.onclose=()=>{stop(false);setStatus('error','Disconnected');$('reconnect').style.display='';};
   ws.onerror=()=>setStatus('error','Connection error');
   ws.onopen=()=>{
     t0=Date.now();setStatus('listening','Listening');
-    // Mic → PCM 16 kHz (AudioContext resamples automatically if device differs)
+    // Mic → PCM 16 kHz
     const src=ctxIn.createMediaStreamSource(stream);proc=ctxIn.createScriptProcessor(4096,1,1);
     proc.onaudioprocess=e=>{
       const f=e.inputBuffer.getChannelData(0),p=new Int16Array(f.length);
       for(let i=0;i<f.length;i++)p[i]=Math.max(-1,Math.min(1,f[i]))*32767;
-      send({realtimeInput:{audio:{data:b64(p.buffer),mimeType:'audio/pcm;rate=16000'}}})};
+      send({realtimeInput:{audio:{data:b64(p.buffer),mimeType:'audio/pcm;rate=16000'}}});
+    };
     src.connect(proc);proc.connect(ctxIn.destination);
     // 1 fps video + auto-mark every 20s
     frameTimer=setInterval(()=>{
       const d=snap();if(d)send({realtimeInput:{video:{data:d,mimeType:'image/jpeg'}}});
-      if(Date.now()-lastShot>20000){lastShot=Date.now();mark()}},1000);}
-  on=true;$('go').textContent='■ Stop';$('go').classList.add('on')}
+      if(Date.now()-lastShot>20000){lastShot=Date.now();mark();}
+    },1000);
+  };
+  on=true;$('go').textContent='■ Stop processing';$('go').classList.add('on');
+}
 
-// keepStream=false → release camera/mic; true → reconnect without releasing
+// Stop coaching
 function stop(keepStream=false){
-  on=false;clearInterval(frameTimer);
+  on=false;
+  clearInterval(frameTimer);
+  $('standbyOverlay').style.display='flex';
+  $('appRoot').classList.remove('scanning');
   proc&&proc.disconnect();
   if(!keepStream&&stream)stream.getTracks().forEach(t=>t.stop());
   ws&&ws.close();stopPlayback();
-  $('go').textContent='▶ Start coaching';$('go').classList.remove('on');setStatus('','Ready')}
+  $('go').textContent='▶ Start processing';$('go').classList.remove('on');setStatus('','Ready');
+}
 
 $('go').onclick=()=>on?stop():start().catch(e=>alert(e.message));
 $('mark').onclick=mark;
 $('reconnect').onclick=()=>start().catch(e=>alert(e.message));
 
-// --- Phase 4: Save my guide ---
+// Phase 4: Save my guide
 $('save').onclick=async()=>{
   const g=$('guide');const gi=$('guide-inner');
-  g.style.display='block';gi.innerHTML='<p>Building your guide…</p>';
+  g.style.display='block';gi.innerHTML='<p style="text-align:center;padding:24px;color:#94a3b8">Synthesizing visual guide…</p>';
 
   // Empty-session guard
   if(!transcript.length){
-    gi.innerHTML='<h2>No session yet</h2><p>Start a coaching session, do your task, then tap Save my guide.</p><div class="guide-btns"><button onclick="$(\'guide\').style.display=\'none\'">Close</button></div>';
-    return;}
+    gi.innerHTML='<h2>No session recorded</h2><p style="color:#94a3b8">Start a session with your camera, complete your task, then tap Save my guide.</p><div class="guide-btns"><button onclick="$(\'guide\').style.display=\'none\'">Close</button></div>';
+    return;
+  }
 
   const text=transcript.map(x=>`[${x.t}] ${x.who}: ${x.text||''}`).join('\n');
   let r,d;
@@ -196,27 +562,45 @@ $('save').onclick=async()=>{
     d=await r.json();
   }catch(e){
     gi.innerHTML='<p>Network error: '+e.message+'</p><div class="guide-btns"><button onclick="$(\'guide\').style.display=\'none\'">Close</button></div>';
-    return;}
+    return;
+  }
 
   if(!r.ok){
     gi.innerHTML='<p>Error generating guide: '+JSON.stringify(d)+'</p><div class="guide-btns"><button onclick="$(\'guide\').style.display=\'none\'">Close</button></div>';
-    return;}
+    return;
+  }
 
   const esc=s=>String(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
   gi.innerHTML=`
     <h1>${esc(d.title)}</h1>
-    <p>${esc(d.summary)}</p>
-    ${d.toolsNeeded?.length?'<h3>🔧 You need</h3><ul>'+d.toolsNeeded.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':''}
-    ${d.safetyNotes?.length?'<h3>⚠ Safety</h3><ul>'+d.safetyNotes.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':''}
-    <h3>Steps</h3>
+    <p style="font-size:14px;color:#94a3b8;margin-bottom:18px">${esc(d.summary)}</p>
+    ${d.toolsNeeded?.length?'<h3>🔧 Tools & Materials</h3><ul>'+d.toolsNeeded.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':''}
+    ${d.safetyNotes?.length?'<h3>⚠ Safety Notes</h3><ul>'+d.safetyNotes.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':''}
+    <h3>Step-by-Step Instructions</h3>
     <ol>${(d.steps||[]).map(s=>`<li>
       <b>${esc(s.instruction)}</b>
-      ${s.timestamp?` <small>(${esc(s.timestamp)})</small>`:''}
-      ${s.tip?'<br><i>💡 Tip: '+esc(s.tip)+'</i>':''}
+      ${s.timestamp?` <small style="color:#00f2fe">(${esc(s.timestamp)})</small>`:''}
+      ${s.tip?'<br><i style="color:#f59e0b">💡 Tip: '+esc(s.tip)+'</i>':''}
       ${s.shotIndex>=0&&shots[s.shotIndex]?'<br><img src="data:image/jpeg;base64,'+shots[s.shotIndex].b64+'" loading="lazy">':''}
     </li>`).join('')}</ol>
     <div class="guide-btns">
-      <button onclick="window.print()">🖨 Print / Save PDF</button>
+      <button onclick="window.print()">🖨 Print / PDF</button>
+      <button id="shareBtn">🔗 Share guide</button>
       <button onclick="$('guide').style.display='none'">✕ Close</button>
-    </div>`};
+    </div>`;
+
+  // Feature 3: Share guide
+  const guideText=`${d.title}\n\n${d.summary||''}\n\n`+
+    (d.toolsNeeded?.length?`Tools needed:\n${d.toolsNeeded.map(x=>'• '+x).join('\n')}\n\n`:'')+
+    (d.safetyNotes?.length?`Safety:\n${d.safetyNotes.map(x=>'⚠ '+x).join('\n')}\n\n`:'')+
+    'Steps:\n'+(d.steps||[]).map((s,i)=>`${i+1}. ${s.instruction}${s.tip?' — 💡 '+s.tip:''}`).join('\n');
+  $('shareBtn').onclick=async()=>{
+    if(navigator.share){
+      try{await navigator.share({title:d.title,text:guideText});return;}catch(e){if(e.name==='AbortError')return;}}
+    try{await navigator.clipboard.writeText(guideText);alert('Guide copied to clipboard!');}
+    catch{/* clipboard fallback */}
+    const wa='https://wa.me/?text='+encodeURIComponent(guideText.slice(0,2000));
+    window.open(wa,'_blank','noopener');
+  };
+};
 </script></body></html>

@@ -117,10 +117,28 @@ wss.on('connection', (client, req) => {
         proactivity: { proactiveAudio: true },
         systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
         tools: [
-          { functionDeclarations: [{ name: 'set_timer',
-            description: 'Start a countdown timer for the user.',
-            parameters: { type: 'OBJECT', required: ['seconds','label'], properties: {
-              seconds: { type: 'INTEGER' }, label: { type: 'STRING' } } } }] }
+          { functionDeclarations: [
+            { name: 'set_timer',
+              description: 'Start a countdown timer for the user.',
+              parameters: { type: 'OBJECT', required: ['seconds','label'], properties: {
+                seconds: { type: 'INTEGER' }, label: { type: 'STRING' } } } },
+            { name: 'highlight',
+              description: 'Draw a pulsing circle and label on the camera overlay to point at a specific part of the frame.',
+              parameters: { type: 'OBJECT', required: ['x','y','label'], properties: {
+                x: { type: 'NUMBER', description: 'Horizontal position 0–100 (percent of frame width)' },
+                y: { type: 'NUMBER', description: 'Vertical position 0–100 (percent of frame height)' },
+                label: { type: 'STRING', description: 'Short label shown next to the circle' } } } },
+            { name: 'update_progress',
+              description: 'Update the progress bar shown at the top of the screen.',
+              parameters: { type: 'OBJECT', required: ['step','total','title'], properties: {
+                step: { type: 'INTEGER', description: 'Current step number (1-based)' },
+                total: { type: 'INTEGER', description: 'Total number of steps' },
+                title: { type: 'STRING', description: 'Short description of the current step' } } } },
+            { name: 'show_safety_warning',
+              description: 'Flash a full-width red safety warning banner for 5 seconds.',
+              parameters: { type: 'OBJECT', required: ['message'], properties: {
+                message: { type: 'STRING', description: 'The safety warning text to display' } } } }
+          ] }
         ],
         inputAudioTranscription: {}, outputAudioTranscription: {},
         contextWindowCompression: { slidingWindow: {} }
@@ -143,6 +161,10 @@ wss.on('connection', (client, req) => {
         }
         if (parsed.goAway) {
           console.log('[Upstream] Received GoAway, session will resume on next connection');
+        }
+        // Log any error messages from Gemini so we can diagnose issues
+        if (parsed.error) {
+          console.error('[Upstream] Gemini error:', JSON.stringify(parsed.error));
         }
       } catch (e) {}
 
